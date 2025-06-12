@@ -38,7 +38,10 @@ curl -X POST http://localhost:8080/api/items \
     "width": 2.0,
     "height": 2.0,
     "length": 2.0,
-    "weight": 10.0
+    "weight": 10.0,
+    "position_x": 1.0,
+    "position_y": 0.0,
+    "position_z": 0.0
   }'
 ```
 
@@ -58,11 +61,14 @@ curl -X DELETE http://localhost:8080/api/items/1
 
 ```json
 {
-  "type": "string",    // Tipo do item
-  "width": float,      // Largura em metros
-  "height": float,     // Altura em metros
-  "length": float,     // Comprimento em metros
-  "weight": float      // Peso em kg
+  "type": "string",          // Tipo do item
+  "width": float,           // Largura em metros
+  "height": float,          // Altura em metros
+  "length": float,          // Comprimento em metros
+  "weight": float,          // Peso em kg
+  "position_x": float,      // Posição X 
+  "position_y": float,      // Posição Y 
+  "position_z": float       // Posição Z 
 }
 ```
 
@@ -85,3 +91,13 @@ curl -X DELETE http://localhost:8080/api/items/1
   "utilization_percentage": 0
 }
 ```
+
+## Observações Importantes
+
+- As posições (position_x, position_y, position_z) são opcionais na criação do item
+- O peso total dos itens não pode exceder o limite máximo da balsa (200kg)
+- A cor será gerada automaticamente se não for fornecida
+- As posições, quando fornecidas, devem respeitar as dimensões da balsa:
+  - Width (X): 0 a 20.0 metros
+  - Height (Y): 0 a 5.0 metros
+  - Length (Z): 0 a 30.0 metros

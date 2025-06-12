@@ -1,373 +1,584 @@
 document.characterSet = 'UTF-8';
 
-const canvas = document.getElementById('balsaCanvas');
-const ctx = canvas.getContext('2d');
+/**
+ * @namespace FerryOptimizerApp
+ */
+const FerryOptimizerApp = {
+    /**
+     * Configurações e constantes da aplicação.
+     */
+    config: {
+        API_BASE_URL: 'http://172.20.0.2:8080',
+        SCALE: 20,
+        CANVAS_OFFSET: {
+            LEFT: 50,
+            TOP: 30,
+            RIGHT: 20,
+            BOTTOM: 20
+        },
+    },
 
-const SCALE = 20;
+    /**
+     * Gerencia o estado da aplicação.
+     */
+    state: {
+        apiData: null,
+        renderedItems: [],
+        hoveredItemId: null,
+    },
 
+    /**
+     * Cache de elementos da UI.
+     */
+    ui: {
+        canvas: null,
+        ctx: null,
+        form: null,
+        statsPanel: null,
+        loadButton: null,
+    },
 
-let lastApiData = null; 
-let renderedItems = []; 
-
-const API_BASE_URL = 'http://172.20.0.2:8080';
-
-async function loadBalsaData() {
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/optimize`, {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json;charset=UTF-8'
+    /**
+     * Módulo para interações com a API.
+     */
+    api: {
+        /**
+         * Busca os dados otimizados da balsa.
+         */
+        fetchData: async () => {
+            const response = await fetch(`${FerryOptimizerApp.config.API_BASE_URL}/api/optimize`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json;charset=UTF-8' }
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || `Falha ao buscar dados: Status ${response.status}`);
             }
-        });
+            return data;
+        },
 
-        const data = await response.json();
+        /**
+         * Adiciona um novo item (container).
+         */
+        addItem: async (itemData) => {
+            const response = await fetch(`${FerryOptimizerApp.config.API_BASE_URL}/api/items`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(itemData)
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || `Erro ao adicionar item: ${response.status}`);
+            }
+            return data;
+        },
 
-        if (!response.ok) {
-            throw new Error(data.error || `Falha ao buscar dados: Status ${response.status}`);
-        }
+        /**
+         * Deleta um item específico.
+         */
+        deleteItem: async (itemId) => {
+            const response = await fetch(`${FerryOptimizerApp.config.API_BASE_URL}/api/items/${itemId}`, {
+                method: 'DELETE'
+            });
+            if (!response.ok) {
+                throw new Error(`Falha ao deletar item: Status ${response.status}`);
+            }
+        },
+    },
 
-        lastApiData = data;
+    /**
+     * Funções de desenho no canvas.
+     */
+    drawing: {
+        /**
+         * Renderiza a balsa e todos os seus componentes no canvas.
+         */
+        render() {
+            const { apiData } = FerryOptimizerApp.state;
+            if (!apiData || !apiData.ferry_info) {
+                this.displayError("Dados da balsa indisponíveis ou incompletos para desenhar.");
+                return;
+            }
+
+            this.setupCanvas(apiData.ferry_info);
+            this.drawGrid(apiData.ferry_info);
+            this.drawFerryArea(apiData.ferry_info);
+            this.drawItems(apiData.placed_items || [], apiData.ferry_info);
+        },
         
-        // Renderiza a balsa com os dados recebidos da API.
-        renderBalsa(lastApiData);
+        /**
+         * Configura as dimensões do canvas com base nos dados da balsa.
+         */
+        setupCanvas(ferry) {
+            const { SCALE, CANVAS_OFFSET } = FerryOptimizerApp.config;
+            const canvas = FerryOptimizerApp.ui.canvas;
+            
+            canvas.width = Math.ceil(ferry.width * SCALE) + CANVAS_OFFSET.LEFT + CANVAS_OFFSET.RIGHT;
+            canvas.height = Math.ceil(ferry.length * SCALE) + CANVAS_OFFSET.TOP + CANVAS_OFFSET.BOTTOM;
+            
+            FerryOptimizerApp.ui.ctx.clearRect(0, 0, canvas.width, canvas.height);
+        },
 
-    } catch (error) {
-        console.error('Erro na requisição:', error);
-        alert(error.message);
-        displayError(`Erro ao carregar dados da balsa.\n${error.message}`);
-    }
-}
-
-/**
- * Renderiza a balsa e todos os itens posicionados no canvas.
- * @param {object} data 
- */
-function renderBalsa(data) {
-    if (!data || !data.ferry_info) {
-        displayError("Dados recebidos da API são inválidos ou incompletos.");
-        return;
-    }
-
-    const ferry = data.ferry_info;
-
-    canvas.width = ferry.width * SCALE;
-    canvas.height = ferry.length * SCALE;
-    
-    renderedItems = []; 
-    
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    drawGrid(canvas.width, canvas.height);
-    updateStatsPanel(data);
-
-    if (!data.placed_items || data.placed_items.length === 0) {
-        ctx.fillStyle = '#666';
-        ctx.font = 'bold 16px Roboto';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('Balsa vazia - Nenhum item carregado', canvas.width / 2, canvas.height / 2);
-        return;
-    }
-
-    data.placed_items.forEach(item => {
-        const widthOnCanvas = item.width * SCALE;
-        const lengthOnCanvas = item.length * SCALE;
-        const x = item.position_x * SCALE;
-        const y = item.position_z * SCALE;
-
-        // Salva as informações do item para detecção de clique
-        renderedItems.push({ id: item.id, x, y, width: widthOnCanvas, length: lengthOnCanvas });
+        /**
+         * Desenha a área da balsa.
+         */
+        drawFerryArea(ferry) {
+            const { SCALE, CANVAS_OFFSET } = FerryOptimizerApp.config;
+            const ctx = FerryOptimizerApp.ui.ctx;
+            ctx.fillStyle = 'rgba(240, 240, 240, 0.5)';
+            ctx.fillRect(CANVAS_OFFSET.LEFT, CANVAS_OFFSET.TOP, ferry.width * SCALE, ferry.length * SCALE);
+        },
         
-        // Desenha o item
-        drawItem(x, y, widthOnCanvas, lengthOnCanvas, item);
-    });
-}
+        /**
+         * Desenha a grade e as métricas no canvas.
+         */
+        drawGrid(ferry) {
+            const { SCALE, CANVAS_OFFSET } = FerryOptimizerApp.config;
+            const ctx = FerryOptimizerApp.ui.ctx;
+            const gridWidth = ferry.width * SCALE;
+            const gridHeight = ferry.length * SCALE;
 
-/**
- * Exibe uma mensagem de erro centralizada no canvas.
- * @param {string} message - A mensagem de erro a ser exibida.
- */
-function displayError(message) {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#D32F2F'; // Cor vermelha para erros
-    ctx.font = 'bold 16px Roboto';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    
-    const lines = message.split('\n');
-    const lineHeight = 20;
-    const startY = canvas.height / 2 - (lineHeight * (lines.length - 1)) / 2;
+            const drawLines = (step, color) => {
+                ctx.strokeStyle = color;
+                for (let x = 0; x <= gridWidth; x += step) {
+                    ctx.beginPath();
+                    ctx.moveTo(CANVAS_OFFSET.LEFT + x, CANVAS_OFFSET.TOP);
+                    ctx.lineTo(CANVAS_OFFSET.LEFT + x, CANVAS_OFFSET.TOP + gridHeight);
+                    ctx.stroke();
+                }
+                for (let y = 0; y <= gridHeight; y += step) {
+                    ctx.beginPath();
+                    ctx.moveTo(CANVAS_OFFSET.LEFT, CANVAS_OFFSET.TOP + y);
+                    ctx.lineTo(CANVAS_OFFSET.LEFT + gridWidth, CANVAS_OFFSET.TOP + y);
+                    ctx.stroke();
+                }
+            };
+            
+            ctx.lineWidth = 0.5;
+            drawLines(SCALE, '#e0e0e0');
+            drawLines(SCALE / 2, '#f0f0f0');
+            
+            this.drawGridLabels(ferry, gridWidth, gridHeight);
+        },
 
-    lines.forEach((line, index) => {
-        ctx.fillText(line, canvas.width / 2, startY + (index * lineHeight));
-    });
-}
+        /**
+         * Desenha os rótulos de dimensão na grade.
+         */
+        drawGridLabels(ferry, gridWidth, gridHeight) {
+            const { SCALE, CANVAS_OFFSET } = FerryOptimizerApp.config;
+            const ctx = FerryOptimizerApp.ui.ctx;
+            const labelSpacing = Math.max(40, Math.min(gridWidth, gridHeight) / 5);
 
+            ctx.fillStyle = '#666';
+            ctx.font = '10px Roboto';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            for (let x = 0; x <= gridWidth; x += labelSpacing) {
+                const meters = (x / SCALE).toFixed(1);
+                if (parseFloat(meters) <= ferry.width) {
+                    ctx.fillText(`${meters}m`, CANVAS_OFFSET.LEFT + x, CANVAS_OFFSET.TOP - 15);
+                }
+            }
 
-/**
- * 
- * @param {object} data 
- */
-function updateStatsPanel(data) {
-    const ferry = data.ferry_info;
-    const items = data.placed_items || [];
-    
-    const statsPanel = document.getElementById('statsPanel');
-    statsPanel.innerHTML = `
-        <h3>Informações da Carga</h3>
-        <p>Peso Total: ${data.total_weight || 0}t</p>
-        <p>Volume Ocupado: ${(data.total_volume_occupied || 0).toFixed(2)}m³</p>
-        <p>Itens Carregados: ${items.length}</p>
-        <h3>Informações da Balsa</h3>
-        <p>Largura: ${ferry.width}m</p>
-        <p>Altura: ${ferry.height}m</p>
-        <p>Comprimento: ${ferry.length}m</p>
-        <p>Peso Máximo: ${ferry.max_weight}t</p>
-        <p>Espaço Utilizável: ${(ferry.usable_space_percentage * 100).toFixed(1)}%</p>
-    `;
-}
+            for (let y = 0; y <= gridHeight; y += labelSpacing) {
+                const meters = (y / SCALE).toFixed(1);
+                if (parseFloat(meters) <= ferry.length) {
+                    ctx.fillText(`${meters}m`, CANVAS_OFFSET.LEFT - 25, CANVAS_OFFSET.TOP + y);
+                }
+            }
+            
+            ctx.fillStyle = '#333';
+            ctx.font = 'bold 12px Roboto';
+            ctx.fillText(`Largura: ${ferry.width.toFixed(1)}m`, CANVAS_OFFSET.LEFT + gridWidth / 2, CANVAS_OFFSET.TOP - 25);
+            ctx.save();
+            ctx.translate(CANVAS_OFFSET.LEFT - 40, CANVAS_OFFSET.TOP + gridHeight / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.fillText(`Comprimento: ${ferry.length.toFixed(1)}m`, 0, 0);
+            ctx.restore();
+        },
 
+        /**
+         * Desenha todos os itens na balsa.
+         */
+        drawItems(items, ferry) {
+            const { SCALE, CANVAS_OFFSET } = FerryOptimizerApp.config;
+            const ctx = FerryOptimizerApp.ui.ctx;
 
-/**
- * Desenha uma grade de fundo no canvas.
- * @param {number} width - Largura do canvas.
- * @param {number} height - Altura do canvas.
- */
-function drawGrid(width, height) {
-    ctx.strokeStyle = '#f0f0f0';
-    ctx.lineWidth = 0.5;
+            FerryOptimizerApp.state.renderedItems = [];
 
-    for (let x = 0; x < width; x += SCALE) {
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, height);
-        ctx.stroke();
-    }
+            if (items.length === 0) {
+                ctx.fillStyle = '#666';
+                ctx.font = 'bold 16px Roboto';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('Balsa vazia', ctx.canvas.width / 2, ctx.canvas.height / 2);
+                return;
+            }
+            
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(CANVAS_OFFSET.LEFT, CANVAS_OFFSET.TOP, ferry.width * SCALE, ferry.length * SCALE);
+            ctx.clip();
 
-    for (let y = 0; y < height; y += SCALE) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(width, y);
-        ctx.stroke();
-    }
-}
+            items.forEach(item => {
+                const widthOnCanvas = item.width * SCALE;
+                const lengthOnCanvas = item.length * SCALE;
+                const x = CANVAS_OFFSET.LEFT + item.position_x * SCALE;
+                const y = CANVAS_OFFSET.TOP + item.position_z * SCALE;
 
-/**
- * Desenha um único item no canvas, incluindo o ícone de lixeira se estiver sob o mouse.
- * @param {number} x - Posição X no canvas.
- * @param {number} y - Posição Y no canvas.
- * @param {number} width - Largura do item no canvas.
- * @param {number} length - Comprimento do item no canvas.
- * @param {object} item - O objeto do item.
- */
-function drawItem(x, y, width, length, item) {
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-    ctx.shadowBlur = 8;
-    ctx.shadowOffsetX = 2;
-    ctx.shadowOffsetY = 3;
-
-    const baseColor = item.color || '#3498db';
-    const gradient = ctx.createLinearGradient(x, y, x, y + length);
-    gradient.addColorStop(0, lightenColor(baseColor, 10));
-    gradient.addColorStop(1, darkenColor(baseColor, 20));
-
-    ctx.fillStyle = gradient;
-    ctx.fillRect(x, y, width, length);
-
-    ctx.shadowColor = 'transparent';
-    ctx.strokeStyle = darkenColor(baseColor, 30);
-    ctx.lineWidth = 2;
-    ctx.strokeRect(x, y, width, length);
-
-    const minFontSize = 8;
-    const maxFontSize = 14;
-    const calculatedFontSize = Math.max(minFontSize, Math.min(maxFontSize, Math.floor(Math.min(width, length) / 4)));
-
-    ctx.fillStyle = getContrastColor(baseColor);
-    ctx.font = `bold ${calculatedFontSize}px Roboto`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    // Desenha as informações do item
-    const texts = [`#${item.id}`, `${item.weight.toFixed(1)}t`];
-    const centerX = x + width / 2;
-    const centerY = y + length / 2;
-    const lineHeight = calculatedFontSize * 1.2;
-    const startY = centerY - (lineHeight * (texts.length - 1)) / 2;
-
-    texts.forEach((text, index) => {
-        ctx.fillText(text, centerX, startY + (index * lineHeight));
-    });
-
-    // Desenha o botão de deletar na parte inferior
-    drawTrashIcon(centerX, y + length - 15);
-}
-
-/**
- * Desenha um ícone de lixeira no centro do item.
- * @param {number} centerX - Coordenada X do centro do item.
- * @param {number} centerY - Coordenada Y do centro do item.
- */
-function drawTrashIcon(centerX, centerY) {
-    const iconSize = 20;
-    const x = centerX - iconSize / 2;
-    const y = centerY - iconSize / 2;
-
-    // Fundo branco semitransparente para o ícone
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, iconSize / 1.5, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.strokeStyle = '#D32F2F'; 
-    ctx.lineWidth = 2;
-    ctx.font = `bold ${iconSize}px sans-serif`;
-    ctx.fillStyle = '#D32F2F';
-    ctx.fillText('🗑️', centerX, centerY + 2); // Emoji de lixeira
-}
-
-/**
- * Deleta um item via API e atualiza a visualização.
- * @param {number} itemId - O ID do item a ser deletado.
- */
-async function deleteItem(itemId) {
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/items/${itemId}`, {
-            method: 'DELETE'
-        });
-
-        if (!response.ok) {
-            throw new Error(`Falha ao deletar item: Status ${response.status}`);
-        }
-
-        alert(`Item #${itemId} deletado com sucesso.`);
-        // Reseta o hover e recarrega os dados para atualizar a balsa.
-        await loadBalsaData();
-
-    } catch (error) {
-        console.error('Erro ao deletar item:', error);
-        alert(`Não foi possível deletar o item.\n(${error.message})`);
-    }
-}
-
-// Funções auxiliares para manipulação de cores
-function darkenColor(color, percent) {
-    const num = parseInt(color.replace('#', ''), 16);
-    const amt = Math.round(2.55 * percent);
-    const R = Math.max(0, (num >> 16) - amt);
-    const G = Math.max(0, (num >> 8 & 0x00FF) - amt);
-    const B = Math.max(0, (num & 0x0000FF) - amt);
-    return '#' + (0x1000000 + R * 0x10000 + G * 0x100 + B).toString(16).slice(1);
-}
-
-function lightenColor(color, percent) {
-    const num = parseInt(color.replace('#', ''), 16);
-    const amt = Math.round(2.55 * percent);
-    const R = Math.min(255, (num >> 16) + amt);
-    const G = Math.min(255, (num >> 8 & 0x00FF) + amt);
-    const B = Math.min(255, (num & 0x0000FF) + amt);
-    return '#' + (0x1000000 + R * 0x10000 + G * 0x100 + B).toString(16).slice(1);
-}
-
-function getContrastColor(hexcolor) {
-    if (!hexcolor || !hexcolor.startsWith('#')) return '#FFFFFF';
-    const r = parseInt(hexcolor.substr(1, 2), 16);
-    const g = parseInt(hexcolor.substr(3, 2), 16);
-    const b = parseInt(hexcolor.substr(5, 2), 16);
-    const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
-    return (yiq >= 128) ? '#000000' : '#FFFFFF';
-}
-
-/**
- * Manipula o envio do formulário para adicionar um novo container.
- * @param {Event} event - O evento de submit do formulário.
- */
-async function handleFormSubmit(event) {
-    event.preventDefault();
-
-    const formData = {
-        type: "Container",
-        width: parseFloat(document.getElementById('width').value),
-        height: parseFloat(document.getElementById('height').value),
-        length: parseFloat(document.getElementById('length').value),
-        weight: parseFloat(document.getElementById('weight').value)
-    };
-
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/items`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(formData)
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(data.error || `Erro ao adicionar item: ${response.status}`);
-        }
+                FerryOptimizerApp.state.renderedItems.push({ 
+                    id: item.id, x, y, width: widthOnCanvas, length: lengthOnCanvas,
+                    deleteButton: { x: x + widthOnCanvas - 15, y: y + 15, radius: 10 }
+                });
+                
+                this.drawSingleItem(x, y, widthOnCanvas, lengthOnCanvas, item);
+            });
+            ctx.restore();
+        },
         
-        alert('Container adicionado com sucesso!');
-        await loadBalsaData();
+        /**
+         * Desenha um único item no canvas.
+         */
+        drawSingleItem(x, y, width, length, item) {
+            const ctx = FerryOptimizerApp.ui.ctx;
+            const baseColor = item.color || '#3498db';
 
-    } catch (error) {
-        console.error('Erro ao adicionar container:', error);
-        alert(error.message);
-    }
-}
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
+            ctx.shadowBlur = 10;
+            ctx.shadowOffsetX = 3;
+            ctx.shadowOffsetY = 3;
+            const gradient = ctx.createLinearGradient(x, y, x, y + length);
+            gradient.addColorStop(0, this.lightenColor(baseColor, 15));
+            gradient.addColorStop(1, this.darkenColor(baseColor, 15));
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(x, y, width, length);
+            ctx.shadowColor = 'transparent';
+            ctx.strokeStyle = this.darkenColor(baseColor, 30);
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, width, length);
+            
+            this.drawItemText(x, y, width, length, item, baseColor);
+            this.drawTrashIcon(x + width - 15, y + 15);
+        },
 
-// --- EVENT LISTENERS PARA INTERATIVIDADE ---
+        /**
+         * Desenha o texto informativo dentro do item.
+         */
+        drawItemText(x, y, width, length, item, baseColor) {
+            const ctx = FerryOptimizerApp.ui.ctx;
+            const fontSize = Math.max(10, Math.min(16, Math.floor(Math.min(width, length) / 4)));
+            ctx.fillStyle = this.getContrastColor(baseColor);
+            ctx.font = `bold ${fontSize}px Roboto`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
 
-// Movimento do mouse sobre o canvas
-canvas.addEventListener('mousemove', (event) => {
-    if (!lastApiData) return;
+            const texts = [`#${item.id}`, `${item.weight.toFixed(1)}t`];
+            const centerX = x + width / 2;
+            const centerY = y + length / 2;
+            const lineHeight = fontSize * 1.2;
+            const startY = centerY - (lineHeight * (texts.length - 1)) / 2;
 
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = event.clientX - rect.left;
-    const mouseY = event.clientY - rect.top;
+            texts.forEach((text, index) => {
+                ctx.fillText(text, centerX, startY + (index * lineHeight));
+            });
+        },
 
-    let currentlyHovered = null;
-    for (const item of renderedItems) {
-        if (mouseX >= item.x && mouseX <= item.x + item.width && 
-            mouseY >= item.y && mouseY <= item.y + item.length) {
-            currentlyHovered = item.id;
-            break;
-        }
-    }
-    
-    // Redesenha apenas se o item sob o cursor mudou.
-    if (currentlyHovered !== hoveredItemId) {
-        hoveredItemId = currentlyHovered;
-        renderBalsa(lastApiData);
-    }
-});
+        /**
+         * Desenha um ícone de lixeira.
+         */
+        drawTrashIcon(x, y) {
+            const ctx = FerryOptimizerApp.ui.ctx;
+            ctx.beginPath();
+            ctx.arc(x, y, 10, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.fill();
+            ctx.strokeStyle = '#D32F2F';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.fillStyle = '#D32F2F';
+            ctx.font = 'bold 16px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('×', x, y + 1);
+        },
 
-// Clique no canvas
-canvas.addEventListener('click', (event) => {
-    if (!lastApiData) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    
-    const mouseX = (event.clientX - rect.left) * scaleX;
-    const mouseY = (event.clientY - rect.top) * scaleY;
-
-    for (const item of renderedItems) {
-        // Área do botão de deletar (últimos 30 pixels do item)
-        const deleteButtonY = item.y + item.length - 30;
+        /**
+         * Exibe uma mensagem de erro no canvas.
+         */
+        displayError(message) {
+            const ctx = FerryOptimizerApp.ui.ctx;
+            ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+            ctx.fillStyle = '#D32F2F';
+            ctx.font = 'bold 16px Roboto';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            message.split('\n').forEach((line, index) => {
+                ctx.fillText(line, ctx.canvas.width / 2, ctx.canvas.height / 2 + (index * 20));
+            });
+        },
         
-        if (mouseX >= item.x && 
-            mouseX <= item.x + item.width && 
-            mouseY >= deleteButtonY && 
-            mouseY <= item.y + item.length) {
-            deleteItem(item.id);
-            break;
+        // Funções auxiliares para manipulação de cores.
+        darkenColor: (c, p) => { const n=parseInt(c.replace("#",""),16),a=Math.round(2.55*p),R=Math.max(0,(n>>16)-a),G=Math.max(0,(n>>8&0x00FF)-a),B=Math.max(0,(n&0x0000FF)-a);return "#"+(0x1000000+R*0x10000+G*0x100+B).toString(16).slice(1) },
+        lightenColor: (c, p) => { const n=parseInt(c.replace("#",""),16),a=Math.round(2.55*p),R=Math.min(255,(n>>16)+a),G=Math.min(255,(n>>8&0x00FF)+a),B=Math.min(255,(n&0x0000FF)+a);return "#"+(0x1000000+R*0x10000+G*0x100+B).toString(16).slice(1) },
+        getContrastColor: (c) => { if (!c||!c.startsWith("#")) return "#FFF"; const r=parseInt(c.substr(1,2),16),g=parseInt(c.substr(3,2),16),b=parseInt(c.substr(5,2),16); return ((r*299+g*587+b*114)/1000 >= 128) ? "#000" : "#FFF" },
+    },
+
+    /**
+     * Lógica para a tooltip de informações do item.
+     */
+    tooltip: {
+        /**
+         * Mostra a tooltip com informações do item.
+         */
+        show(event, item) {
+            this.removeAll();
+            const tooltipEl = document.createElement('div');
+            tooltipEl.className = 'tooltip';
+            tooltipEl.innerHTML = `
+                <strong>Container #${item.id}</strong>
+                Dimensões: ${item.width}m × ${item.length}m<br>
+                Peso: ${item.weight}t`;
+            
+            document.body.appendChild(tooltipEl);
+            
+            tooltipEl.style.left = `${event.clientX + 15}px`;
+            tooltipEl.style.top = `${event.clientY + 15}px`;
+            
+            setTimeout(() => tooltipEl.style.opacity = '1', 10);
+        },
+
+        /**
+         * Atualiza a posição da tooltip ativa na tela.
+         */
+        updatePosition(event) {
+            const tooltipEl = document.querySelector('.tooltip');
+            if (!tooltipEl) return;
+            tooltipEl.style.left = `${event.clientX + 15}px`;
+            tooltipEl.style.top = `${event.clientY + 15}px`;
+        },
+
+        /**
+         * Remove todas as tooltips da DOM.
+         */
+        removeAll() {
+            const tooltips = document.querySelectorAll('.tooltip');
+            tooltips.forEach(tooltip => {
+                tooltip.style.opacity = '0';
+                setTimeout(() => tooltip.remove(), 300);
+            });
         }
+    },
+
+    /**
+     * Manipuladores de eventos (handlers).
+     */
+    handlers: {
+        /**
+         * Carrega e renderiza os dados da balsa.
+         */
+        async loadAndRenderData() {
+            FerryOptimizerApp.tooltip.removeAll();
+            FerryOptimizerApp.ui.showLoading();
+            try {
+                const data = await FerryOptimizerApp.api.fetchData();
+                FerryOptimizerApp.state.apiData = data;
+                FerryOptimizerApp.ui.updateStatsPanel();
+                FerryOptimizerApp.drawing.render();
+            } catch (error) {
+                console.error('Erro na requisição:', error);
+                FerryOptimizerApp.state.apiData = {};
+                FerryOptimizerApp.ui.updateStatsPanel();
+                FerryOptimizerApp.drawing.displayError(`Erro ao carregar dados.\n${error.message}`);
+            }
+        },
+        
+        /**
+         * Manipula o envio do formulário para adicionar um novo container.
+         */
+        async handleFormSubmit(event) {
+            event.preventDefault();
+            const form = event.target;
+            const formData = {
+                type: "Container",
+                width: parseFloat(form.width.value),
+                height: parseFloat(form.height.value),
+                length: parseFloat(form.length.value),
+                weight: parseFloat(form.weight.value)
+            };
+
+            try {
+                await FerryOptimizerApp.api.addItem(formData);
+                alert('Container adicionado com sucesso!');
+                form.reset();
+                this.loadAndRenderData();
+            } catch (error) {
+                console.error('Erro ao adicionar container:', error);
+                alert(error.message);
+            }
+        },
+
+        /**
+         * Manipula o clique no canvas para deletar itens.
+         */
+        handleCanvasClick(event) {
+            const { renderedItems } = FerryOptimizerApp.state;
+            const mousePos = FerryOptimizerApp.utils.getMousePos(event);
+
+            const itemToDelete = renderedItems.find(item => {
+                const dx = mousePos.x - item.deleteButton.x;
+                const dy = mousePos.y - item.deleteButton.y;
+                return Math.sqrt(dx * dx + dy * dy) <= item.deleteButton.radius;
+            });
+            
+            if (itemToDelete) {
+                if (confirm(`Deseja realmente deletar o container #${itemToDelete.id}?`)) {
+                    FerryOptimizerApp.api.deleteItem(itemToDelete.id)
+                        .then(() => this.loadAndRenderData())
+                        .catch(error => {
+                            console.error('Erro ao deletar item:', error);
+                            alert(`Erro ao deletar: ${error.message}`);
+                        });
+                }
+            }
+        },
+
+        /**
+         * Manipula o movimento do mouse sobre o canvas.
+         */
+        handleCanvasMouseMove(event) {
+            const { apiData, renderedItems } = FerryOptimizerApp.state;
+            if (!apiData) return;
+
+            const mousePos = FerryOptimizerApp.utils.getMousePos(event);
+            const { canvas } = FerryOptimizerApp.ui;
+            
+            const hoveredItem = renderedItems.find(item => 
+                mousePos.x >= item.x && mousePos.x <= item.x + item.width && 
+                mousePos.y >= item.y && mousePos.y <= item.y + item.length
+            );
+
+            const currentlyHoveredId = hoveredItem ? hoveredItem.id : null;
+            
+            if (currentlyHoveredId !== FerryOptimizerApp.state.hoveredItemId) {
+                FerryOptimizerApp.state.hoveredItemId = currentlyHoveredId;
+                canvas.style.cursor = currentlyHoveredId ? 'pointer' : 'default';
+                
+                FerryOptimizerApp.tooltip.removeAll();
+                
+                if (hoveredItem) {
+                    const fullItemData = apiData.placed_items.find(i => i.id === hoveredItem.id);
+                    if (fullItemData) {
+                        FerryOptimizerApp.tooltip.show(event, fullItemData);
+                    }
+                }
+            } 
+            else if (currentlyHoveredId) {
+                FerryOptimizerApp.tooltip.updatePosition(event);
+            }
+        },
+
+        /**
+         * Manipula a saída do mouse do canvas.
+         */
+        handleCanvasMouseOut() {
+            FerryOptimizerApp.tooltip.removeAll();
+            FerryOptimizerApp.state.hoveredItemId = null;
+            FerryOptimizerApp.ui.canvas.style.cursor = 'default';
+        }
+    },
+    
+    /**
+     * Métodos e utilitários da UI.
+     */
+    ui: {
+        ...this.ui,
+
+        /**
+         * Cacheia os elementos DOM para acesso rápido.
+         */
+        cacheElements() {
+            this.canvas = document.getElementById('balsaCanvas');
+            this.ctx = this.canvas.getContext('2d');
+            this.form = document.getElementById('containerForm');
+            this.statsPanel = document.getElementById('statsPanel');
+            this.loadButton = document.getElementById('loadData');
+        },
+
+        /**
+         * Mostra um indicador de carregamento no painel de estatísticas.
+         */
+        showLoading() {
+            this.statsPanel.innerHTML = `
+                <div class="loading-indicator">
+                    <i class="fas fa-spinner fa-spin"></i> Carregando...
+                </div>`;
+        },
+
+        /**
+         * Atualiza o painel de estatísticas com os dados da balsa.
+         */
+        updateStatsPanel() {
+            const data = FerryOptimizerApp.state.apiData || {};
+            const ferry = data.ferry_info || {};
+            const items = data.placed_items || [];
+            
+            const total_weight = data.total_weight || 0;
+            const total_volume_occupied = data.total_volume_occupied || 0;
+            const ferry_width = ferry.width !== undefined ? ferry.width : 'N/D';
+            const ferry_length = ferry.length !== undefined ? ferry.length : 'N/D';
+            const ferry_max_weight = ferry.max_weight !== undefined ? ferry.max_weight : 'N/D';
+            const ferry_space_percentage = ferry.usable_space_percentage !== undefined ? (ferry.usable_space_percentage * 100).toFixed(1) : 'N/D';
+
+            this.statsPanel.innerHTML = `
+                <h3><i class="fas fa-box"></i> Informações da Carga</h3>
+                <p><i class="fas fa-weight-hanging"></i> Peso Total: ${total_weight.toFixed(1)}t</p>
+                <p><i class="fas fa-cube"></i> Volume Ocupado: ${total_volume_occupied.toFixed(2)}m³</p>
+                <p><i class="fas fa-boxes"></i> Itens Carregados: ${items.length}</p>
+                <h3><i class="fas fa-ship"></i> Informações da Balsa</h3>
+                <p><i class="fas fa-arrows-alt-h"></i> Largura: ${ferry_width}m</p>
+                <p><i class="fas fa-ruler"></i> Comprimento: ${ferry_length}m</p>
+                <p><i class="fas fa-weight"></i> Peso Máximo: ${ferry_max_weight}t</p>
+                <p><i class="fas fa-percentage"></i> Espaço Utilizável: ${ferry_space_percentage}%</p>
+            `;
+        }
+    },
+    
+    /**
+     * Funções utilitárias.
+     */
+    utils: {
+        /**
+         * Obtém as coordenadas do mouse relativas ao canvas.
+         */
+        getMousePos(event) {
+            const rect = FerryOptimizerApp.ui.canvas.getBoundingClientRect();
+            const scaleX = FerryOptimizerApp.ui.canvas.width / rect.width;
+            const scaleY = FerryOptimizerApp.ui.canvas.height / rect.height;
+            return {
+                x: (event.clientX - rect.left) * scaleX,
+                y: (event.clientY - rect.top) * scaleY
+            };
+        }
+    },
+
+    /**
+     * Inicializa a aplicação.
+     */
+    init() {
+        this.ui.cacheElements();
+        
+        this.ui.loadButton.addEventListener('click', this.handlers.loadAndRenderData.bind(this.handlers));
+        this.ui.form.addEventListener('submit', this.handlers.handleFormSubmit.bind(this.handlers));
+        this.ui.canvas.addEventListener('click', this.handlers.handleCanvasClick.bind(this.handlers));
+        this.ui.canvas.addEventListener('mousemove', this.handlers.handleCanvasMouseMove.bind(this.handlers));
+        this.ui.canvas.addEventListener('mouseout', this.handlers.handleCanvasMouseOut.bind(this.handlers));
+        
+        this.handlers.loadAndRenderData();
     }
-});
+};
 
-document.getElementById('loadData').addEventListener('click', loadBalsaData);
-document.getElementById('containerForm').addEventListener('submit', handleFormSubmit);
-window.addEventListener('DOMContentLoaded', loadBalsaData);
-
-canvas.removeEventListener('mousemove', null);
-canvas.removeEventListener('mouseout', null);
+// Inicia a aplicação quando o DOM estiver pronto.
+window.addEventListener('DOMContentLoaded', () => FerryOptimizerApp.init());

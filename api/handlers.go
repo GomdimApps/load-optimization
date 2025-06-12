@@ -23,7 +23,6 @@ func CreateItemHandler(c *gin.Context) {
 		return
 	}
 
-	// Dimensões da balsa atualizadas conforme solicitado.
 	ferry := models.Ferry{
 		Width: 20.0, Height: 5.0, Length: 30.0, MaxWeight: 200.0, UsableSpace: 0.90,
 	}
@@ -34,34 +33,60 @@ func CreateItemHandler(c *gin.Context) {
 		return
 	}
 
-	var alreadyPlaced []models.PlacedItem
+	// Converte itens existentes para PlacedItem para validação
+	var existingPlacedItems []models.PlacedItem
 	for _, item := range allItemsFromDB {
 		if item.PositionX != nil && item.PositionY != nil && item.PositionZ != nil {
-			placed := models.PlacedItem{
-				ID: item.ID, Type: item.Type, Width: item.Width, Height: item.Height, Length: item.Length, Weight: item.Weight, Color: item.Color,
+			existingPlacedItems = append(existingPlacedItems, models.PlacedItem{
+				ID: item.ID, Type: item.Type,
+				Width: item.Width, Height: item.Height, Length: item.Length,
+				Weight: item.Weight, Color: item.Color,
 				PositionX: *item.PositionX, PositionY: *item.PositionY, PositionZ: *item.PositionZ,
+			})
+		}
+	}
+
+	// Se posições foram fornecidas, valida se são válidas
+	if newItem.PositionX != nil && newItem.PositionY != nil && newItem.PositionZ != nil {
+		// Verifica se as posições estão dentro dos limites da balsa
+		if *newItem.PositionX+newItem.Width > ferry.Width ||
+			*newItem.PositionY+newItem.Height > ferry.Height ||
+			*newItem.PositionZ+newItem.Length > ferry.Length*ferry.UsableSpace {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Posição fornecida está fora dos limites da balsa"})
+			return
+		}
+
+		// Verifica colisão com outros itens
+		itemToCheck := models.PlacedItem{
+			Width: newItem.Width, Height: newItem.Height, Length: newItem.Length,
+			PositionX: *newItem.PositionX, PositionY: *newItem.PositionY, PositionZ: *newItem.PositionZ,
+		}
+		for _, placed := range existingPlacedItems {
+			if checkCollision(itemToCheck, placed) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Item colide com outro item já posicionado"})
+				return
 			}
-			alreadyPlaced = append(alreadyPlaced, placed)
+		}
+	} else {
+		// Se não foram fornecidas posições, valida se há espaço disponível
+		if err := optimizer.CheckFitment(ferry, newItem, existingPlacedItems); err != nil {
+			switch err {
+			case optimizer.ErrOverweight:
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Peso máximo da balsa já foi alcançado"})
+			case optimizer.ErrNoSpace:
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Não há espaço disponível na balsa para este item"})
+			default:
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao validar posicionamento: " + err.Error()})
+			}
+			return
 		}
 	}
 
-	// Utiliza a nova função de validação que retorna erros específicos.
-	if err := optimizer.CheckFitment(ferry, newItem, alreadyPlaced); err != nil {
-		switch err {
-		case optimizer.ErrOverweight:
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Peso máximo da balsa já foi alcançado."})
-		case optimizer.ErrNoSpace:
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Simulação falhou: Não há mais espaço na balsa para este novo item."})
-		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ocorreu um erro inesperado durante a validação."})
-		}
-		return
+	// Gera uma cor aleatória se não foi fornecida
+	if newItem.Color == "" {
+		rand.Seed(time.Now().UnixNano())
+		newItem.Color = fmt.Sprintf("#%06x", rand.Intn(0xffffff+1))
 	}
-
-	// Se a validação passou, salva o item no banco.
-	rand.Seed(time.Now().UnixNano())
-	newItem.Color = fmt.Sprintf("#%06x", rand.Intn(0xffffff+1))
-	newItem.PositionX, newItem.PositionY, newItem.PositionZ = nil, nil, nil
 
 	id, err := database.CreateItem(&newItem)
 	if err != nil {
@@ -71,6 +96,16 @@ func CreateItemHandler(c *gin.Context) {
 
 	newItem.ID = id
 	c.JSON(http.StatusCreated, newItem)
+}
+
+// Função auxiliar para verificar colisão entre dois itens
+func checkCollision(a, b models.PlacedItem) bool {
+	return !(a.PositionX+a.Width <= b.PositionX ||
+		a.PositionX >= b.PositionX+b.Width ||
+		a.PositionY+a.Height <= b.PositionY ||
+		a.PositionY >= b.PositionY+b.Height ||
+		a.PositionZ+a.Length <= b.PositionZ ||
+		a.PositionZ >= b.PositionZ+b.Length)
 }
 
 // OptimizeHandler calcula e salva as posições para todos os itens não alocados.
