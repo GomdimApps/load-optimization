@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.back
+    restart: unless-stopped
+    container_name: go-backend
+    volumes:
+      - db-data:/app/data
+    ports:
+      - "8080:8080"
+    networks:
+      ferry_net:
+        ipv4_address: 172.20.0.2
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.front
+    restart: unless-stopped
+    container_name: nginx-frontend
+    ports:
+      - "9090:80"
+    depends_on:
+      - backend
+    networks:
+      ferry_net:
+        ipv4_address: 172.20.0.3
+
+networks:
+  ferry_net:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/29
+          gateway: 172.20.0.1
+
+volumes:
+  db-data:

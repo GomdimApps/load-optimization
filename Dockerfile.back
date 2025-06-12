@@ -1,0 +1,30 @@
+FROM golang:1.24.1-alpine3.20 AS builder
+
+WORKDIR /app
+
+RUN apk add --no-cache build-base gcc musl-dev sqlite
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+ENV CGO_ENABLED=1
+ENV GODEBUG=netdns=go
+
+RUN go build -ldflags="-w -s" -o /app/server .
+
+FROM alpine:3.20
+
+WORKDIR /app
+
+RUN apk add --no-cache ca-certificates tzdata sqlite-libs && \
+    mkdir -p /app/data && \
+    chown -R nobody:nobody /app
+
+COPY --from=builder /app/server .
+
+EXPOSE 8080
+
+USER nobody:nobody
+CMD ["/app/server"]
