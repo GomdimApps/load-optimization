@@ -2,7 +2,6 @@ document.characterSet = 'UTF-8';
 
 /**
  * @namespace FerryOptimizerApp
- * 
  */
 const FerryOptimizerApp = {
     /**
@@ -97,7 +96,7 @@ const FerryOptimizerApp = {
         render() {
             const { apiData } = FerryOptimizerApp.state;
             if (!apiData || !apiData.ferry_info) {
-                this.displayError("Dados recebidos da API são inválidos ou incompletos.");
+                this.displayError("Dados da balsa indisponíveis ou incompletos para desenhar.");
                 return;
             }
 
@@ -105,7 +104,6 @@ const FerryOptimizerApp = {
             this.drawGrid(apiData.ferry_info);
             this.drawFerryArea(apiData.ferry_info);
             this.drawItems(apiData.placed_items || [], apiData.ferry_info);
-            FerryOptimizerApp.ui.updateStatsPanel();
         },
         
         /**
@@ -387,9 +385,12 @@ const FerryOptimizerApp = {
             try {
                 const data = await FerryOptimizerApp.api.fetchData();
                 FerryOptimizerApp.state.apiData = data;
+                FerryOptimizerApp.ui.updateStatsPanel();
                 FerryOptimizerApp.drawing.render();
             } catch (error) {
                 console.error('Erro na requisição:', error);
+                FerryOptimizerApp.state.apiData = {};
+                FerryOptimizerApp.ui.updateStatsPanel();
                 FerryOptimizerApp.drawing.displayError(`Erro ao carregar dados.\n${error.message}`);
             }
         },
@@ -520,21 +521,27 @@ const FerryOptimizerApp = {
          * Atualiza o painel de estatísticas com os dados da balsa.
          */
         updateStatsPanel() {
-            const data = FerryOptimizerApp.state.apiData;
-            if (!data) return;
-
-            const { ferry_info: ferry, placed_items: items = [], total_weight, total_volume_occupied } = data;
+            const data = FerryOptimizerApp.state.apiData || {};
+            const ferry = data.ferry_info || {};
+            const items = data.placed_items || [];
+            
+            const total_weight = data.total_weight || 0;
+            const total_volume_occupied = data.total_volume_occupied || 0;
+            const ferry_width = ferry.width !== undefined ? ferry.width : 'N/D';
+            const ferry_length = ferry.length !== undefined ? ferry.length : 'N/D';
+            const ferry_max_weight = ferry.max_weight !== undefined ? ferry.max_weight : 'N/D';
+            const ferry_space_percentage = ferry.usable_space_percentage !== undefined ? (ferry.usable_space_percentage * 100).toFixed(1) : 'N/D';
 
             this.statsPanel.innerHTML = `
                 <h3><i class="fas fa-box"></i> Informações da Carga</h3>
-                <p><i class="fas fa-weight-hanging"></i> Peso Total: ${total_weight || 0}t</p>
-                <p><i class="fas fa-cube"></i> Volume Ocupado: ${(total_volume_occupied || 0).toFixed(2)}m³</p>
+                <p><i class="fas fa-weight-hanging"></i> Peso Total: ${total_weight.toFixed(1)}t</p>
+                <p><i class="fas fa-cube"></i> Volume Ocupado: ${total_volume_occupied.toFixed(2)}m³</p>
                 <p><i class="fas fa-boxes"></i> Itens Carregados: ${items.length}</p>
                 <h3><i class="fas fa-ship"></i> Informações da Balsa</h3>
-                <p><i class="fas fa-arrows-alt-h"></i> Largura: ${ferry.width}m</p>
-                <p><i class="fas fa-ruler"></i> Comprimento: ${ferry.length}m</p>
-                <p><i class="fas fa-weight"></i> Peso Máximo: ${ferry.max_weight}t</p>
-                <p><i class="fas fa-percentage"></i> Espaço Utilizável: ${(ferry.usable_space_percentage * 100).toFixed(1)}%</p>
+                <p><i class="fas fa-arrows-alt-h"></i> Largura: ${ferry_width}m</p>
+                <p><i class="fas fa-ruler"></i> Comprimento: ${ferry_length}m</p>
+                <p><i class="fas fa-weight"></i> Peso Máximo: ${ferry_max_weight}t</p>
+                <p><i class="fas fa-percentage"></i> Espaço Utilizável: ${ferry_space_percentage}%</p>
             `;
         }
     },
