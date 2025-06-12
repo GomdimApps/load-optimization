@@ -5,8 +5,8 @@ const ctx = canvas.getContext('2d');
 
 const SCALE = 20;
 
-const OFFSET_LEFT = 40;
-const OFFSET_TOP = 25;
+const OFFSET_LEFT = 50;
+const OFFSET_TOP = 30;
 
 let lastApiData = null; 
 let renderedItems = []; 
@@ -53,17 +53,20 @@ function renderBalsa(data) {
 
     const ferry = data.ferry_info;
 
-    // O canvas agora tem o tamanho exato da balsa + espaço para métricas
-    canvas.width = ferry.width * SCALE + OFFSET_LEFT + 10;
-    canvas.height = ferry.length * SCALE + OFFSET_TOP + 10;
+    // Calcula o tamanho do canvas baseado nas dimensões reais da balsa
+    const canvasWidth = Math.ceil(ferry.width * SCALE) + OFFSET_LEFT + 20;
+    const canvasHeight = Math.ceil(ferry.length * SCALE) + OFFSET_TOP + 20;
+    
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
     
     renderedItems = [];
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Desenha a grade e as métricas com offset
-    drawGrid(ferry.width * SCALE, ferry.length * SCALE);
+    // Desenha a grade e as métricas com as dimensões reais da balsa
+    drawGrid(ferry.width * SCALE, ferry.length * SCALE, ferry);
 
-    // Desenha a área da balsa
+    // Desenha a área da balsa com as dimensões reais
     ctx.fillStyle = 'rgba(240, 240, 240, 0.5)';
     ctx.fillRect(OFFSET_LEFT, OFFSET_TOP, ferry.width * SCALE, ferry.length * SCALE);
 
@@ -78,15 +81,35 @@ function renderBalsa(data) {
         return;
     }
 
+    // Salva o estado atual do contexto
+    ctx.save();
+    
+    // Define a área de recorte para a balsa
+    ctx.beginPath();
+    ctx.rect(OFFSET_LEFT, OFFSET_TOP, ferry.width * SCALE, ferry.length * SCALE);
+    ctx.clip();
+
     data.placed_items.forEach(item => {
         const widthOnCanvas = item.width * SCALE;
         const lengthOnCanvas = item.length * SCALE;
         const x = OFFSET_LEFT + item.position_x * SCALE;
         const y = OFFSET_TOP + item.position_z * SCALE;
 
-        renderedItems.push({ id: item.id, x, y, width: widthOnCanvas, length: lengthOnCanvas });
+        renderedItems.push({ 
+            id: item.id, 
+            x, 
+            y, 
+            width: widthOnCanvas, 
+            length: lengthOnCanvas,
+            deleteButtonX: x + widthOnCanvas - 25,
+            deleteButtonY: y + 25
+        });
+        
         drawItem(x, y, widthOnCanvas, lengthOnCanvas, item);
     });
+
+    // Restaura o estado do contexto
+    ctx.restore();
 }
 
 /**
@@ -139,7 +162,7 @@ function updateStatsPanel(data) {
  * @param {number} width - Largura do canvas.
  * @param {number} height - Altura do canvas.
  */
-function drawGrid(width, height) {
+function drawGrid(width, height, ferry) {
     // Grade principal (metros)
     ctx.strokeStyle = '#e0e0e0';
     ctx.lineWidth = 0.5;
@@ -181,18 +204,38 @@ function drawGrid(width, height) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    // Rótulos horizontais (largura) - Ajustados para ficarem espaçados
-    const labelSpacing = 40; // Espaçamento entre rótulos
+    // Calcula o espaçamento dos rótulos baseado no tamanho real da balsa
+    const labelSpacing = Math.max(40, Math.min(width, height) / 5);
+
+    // Rótulos horizontais (largura)
     for (let x = 0; x <= width; x += labelSpacing) {
-        const label = `${x / SCALE}m`;
-        ctx.fillText(label, OFFSET_LEFT + x, OFFSET_TOP - 10);
+        const meters = (x / SCALE).toFixed(1);
+        if (parseFloat(meters) <= ferry.width) {
+            ctx.fillText(`${meters}m`, OFFSET_LEFT + x, OFFSET_TOP - 10);
+        }
     }
 
-    // Rótulos verticais (comprimento) - Ajustados para ficarem espaçados
+    // Rótulos verticais (comprimento)
     for (let y = 0; y <= height; y += labelSpacing) {
-        const label = `${y / SCALE}m`;
-        ctx.fillText(label, OFFSET_LEFT - 20, OFFSET_TOP + y);
+        const meters = (y / SCALE).toFixed(1);
+        if (parseFloat(meters) <= ferry.length) {
+            ctx.fillText(`${meters}m`, OFFSET_LEFT - 20, OFFSET_TOP + y);
+        }
     }
+
+    // Adiciona rótulos finais com as dimensões totais
+    ctx.fillStyle = '#333';
+    ctx.font = 'bold 12px Roboto';
+    
+    // Rótulo da largura total
+    ctx.fillText(`Largura: ${ferry.width.toFixed(1)}m`, OFFSET_LEFT + width/2, OFFSET_TOP - 25);
+    
+    // Rótulo do comprimento total
+    ctx.save();
+    ctx.translate(OFFSET_LEFT - 35, OFFSET_TOP + height/2);
+    ctx.rotate(-Math.PI/2);
+    ctx.fillText(`Comprimento: ${ferry.length.toFixed(1)}m`, 0, 0);
+    ctx.restore();
 }
 
 /**
@@ -285,20 +328,22 @@ function drawTrashIcon(x, y) {
 async function deleteItem(itemId) {
     try {
         const response = await fetch(`${API_BASE_URL}/api/items/${itemId}`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json'
+            }
         });
 
         if (!response.ok) {
             throw new Error(`Falha ao deletar item: Status ${response.status}`);
         }
 
-        alert(`Item #${itemId} deletado com sucesso.`);
-        // Reseta o hover e recarrega os dados para atualizar a balsa.
+        // Recarrega os dados após deletar
         await loadBalsaData();
-
+        
     } catch (error) {
         console.error('Erro ao deletar item:', error);
-        alert(`Não foi possível deletar o item.\n(${error.message})`);
+        alert(`Erro ao deletar o container: ${error.message}`);
     }
 }
 
@@ -455,6 +500,32 @@ function showLoading() {
         </div>
     `;
 }
+
+// Adiciona o evento de clique no canvas
+canvas.addEventListener('click', (event) => {
+    if (!lastApiData) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    const mouseX = (event.clientX - rect.left) * scaleX;
+    const mouseY = (event.clientY - rect.top) * scaleY;
+
+    // Verifica se o clique foi em algum botão de deletar
+    for (const item of renderedItems) {
+        const dx = mouseX - item.deleteButtonX;
+        const dy = mouseY - item.deleteButtonY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance <= 15) { // Raio do botão de deletar
+            if (confirm(`Deseja realmente deletar o container #${item.id}?`)) {
+                deleteItem(item.id);
+            }
+            break;
+        }
+    }
+});
 
 document.getElementById('loadData').addEventListener('click', loadBalsaData);
 document.getElementById('containerForm').addEventListener('submit', handleFormSubmit);
