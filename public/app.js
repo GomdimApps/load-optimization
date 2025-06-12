@@ -533,3 +533,140 @@ window.addEventListener('DOMContentLoaded', loadBalsaData);
 
 canvas.removeEventListener('mousemove', null);
 canvas.removeEventListener('mouseout', null);
+
+async function calculateNextPosition(ferry, items) {
+    if (!items || items.length === 0) {
+        return { x: 0, y: 0, z: 0, hasSpace: true };
+    }
+
+    // Ordena os itens por posição X e Z
+    const sortedItems = [...items].sort((a, b) => {
+        if (a.position_z !== b.position_z) {
+            return a.position_z - b.position_z;
+        }
+        return a.position_x - b.position_x;
+    });
+
+    // Encontra o último item
+    const lastItem = sortedItems[sortedItems.length - 1];
+    
+    // Calcula a próxima posição
+    let nextX = lastItem.position_x + lastItem.width;
+    let nextZ = lastItem.position_z;
+
+    // Se não couber na linha atual, move para a próxima linha
+    if (nextX + lastItem.width > ferry.width) {
+        nextX = 0;
+        nextZ = lastItem.position_z + lastItem.length;
+    }
+
+    // Verifica se ainda há espaço na balsa
+    const hasSpace = nextZ + lastItem.length <= ferry.length;
+
+    return {
+        x: nextX,
+        y: 0, // Altura sempre começa em 0
+        z: nextZ,
+        hasSpace: hasSpace
+    };
+}
+
+async function addItem() {
+    const type = document.getElementById('type').value;
+    const width = parseFloat(document.getElementById('width').value);
+    const height = parseFloat(document.getElementById('height').value);
+    const length = parseFloat(document.getElementById('length').value);
+    const weight = parseFloat(document.getElementById('weight').value);
+
+    if (!type || isNaN(width) || isNaN(height) || isNaN(length) || isNaN(weight)) {
+        alert('Por favor, preencha todos os campos corretamente.');
+        return;
+    }
+
+    try {
+        showLoading();
+
+        // Primeiro, obtém os dados atuais da balsa para calcular a posição
+        const currentData = await fetch(`${API_BASE_URL}/api/ferry`).then(res => res.json());
+        
+        // Calcula a próxima posição disponível
+        const position = await calculateNextPosition(currentData.ferry_info, currentData.placed_items);
+
+        // Verifica se há espaço disponível
+        if (!position.hasSpace) {
+            alert('Não há mais espaço disponível na balsa para adicionar novos containers.');
+            hideLoading();
+            return;
+        }
+
+        // Adiciona o item com a posição sugerida
+        const itemData = {
+            type: type,
+            width: width,
+            height: height,
+            length: length,
+            weight: weight,
+            position_x: position.x,
+            position_y: position.y,
+            position_z: position.z
+        };
+
+        const response = await fetch(`${API_BASE_URL}/api/items`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(itemData)
+        });
+
+        if (!response.ok) {
+            throw new Error(`Falha ao adicionar item: Status ${response.status}`);
+        }
+
+        // Após adicionar o item, chama a otimização
+        await optimizeItems();
+
+        // Limpa o formulário
+        document.getElementById('addItemForm').reset();
+        
+    } catch (error) {
+        console.error('Erro ao adicionar item:', error);
+        alert(`Erro ao adicionar o container: ${error.message}`);
+    } finally {
+        hideLoading();
+    }
+}
+
+async function optimizeItems() {
+    try {
+        showLoading();
+        
+        const response = await fetch(`${API_BASE_URL}/api/optimize`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`Falha na otimização: Status ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        // Atualiza a visualização com as novas posições
+        renderBalsa(data);
+        
+    } catch (error) {
+        console.error('Erro na otimização:', error);
+        alert(`Erro ao otimizar a disposição dos containers: ${error.message}`);
+    } finally {
+        hideLoading();
+    }
+}
+
+// Atualiza o evento de submit do formulário
+document.getElementById('addItemForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await addItem();
+});

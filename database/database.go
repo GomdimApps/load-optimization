@@ -41,13 +41,19 @@ func CloseDB() {
 
 // CreateItem inserts a new item without position data.
 func CreateItem(item *models.Item) (int64, error) {
-	stmt, err := db.Prepare("INSERT INTO items(type, width, height, length, weight, color) VALUES(?, ?, ?, ?, ?, ?)")
+	stmt, err := db.Prepare(`
+		INSERT INTO items(type, width, height, length, weight, color, position_x, position_y, position_z) 
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`)
 	if err != nil {
 		return 0, err
 	}
 	defer stmt.Close()
 
-	res, err := stmt.Exec(item.Type, item.Width, item.Height, item.Length, item.Weight, item.Color)
+	res, err := stmt.Exec(
+		item.Type, item.Width, item.Height, item.Length, item.Weight, item.Color,
+		item.PositionX, item.PositionY, item.PositionZ,
+	)
 	if err != nil {
 		return 0, err
 	}
