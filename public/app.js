@@ -144,6 +144,7 @@ function drawGrid(width, height) {
     ctx.strokeStyle = '#e0e0e0';
     ctx.lineWidth = 0.5;
 
+    // Desenha as linhas verticais (largura)
     for (let x = 0; x <= width; x += SCALE) {
         ctx.beginPath();
         ctx.moveTo(OFFSET_LEFT + x, OFFSET_TOP);
@@ -151,6 +152,7 @@ function drawGrid(width, height) {
         ctx.stroke();
     }
 
+    // Desenha as linhas horizontais (comprimento)
     for (let y = 0; y <= height; y += SCALE) {
         ctx.beginPath();
         ctx.moveTo(OFFSET_LEFT, OFFSET_TOP + y);
@@ -173,19 +175,23 @@ function drawGrid(width, height) {
         ctx.stroke();
     }
 
-    // Rótulos de escala
+    // Configuração dos rótulos
     ctx.fillStyle = '#666';
     ctx.font = '10px Roboto';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    // Rótulos horizontais (largura)
-    for (let x = 0; x <= width; x += SCALE) {
-        ctx.fillText(`${x / SCALE}m`, OFFSET_LEFT + x, OFFSET_TOP - 10);
+    // Rótulos horizontais (largura) - Ajustados para ficarem espaçados
+    const labelSpacing = 40; // Espaçamento entre rótulos
+    for (let x = 0; x <= width; x += labelSpacing) {
+        const label = `${x / SCALE}m`;
+        ctx.fillText(label, OFFSET_LEFT + x, OFFSET_TOP - 10);
     }
-    // Rótulos verticais (comprimento)
-    for (let y = 0; y <= height; y += SCALE) {
-        ctx.fillText(`${y / SCALE}m`, OFFSET_LEFT - 20, OFFSET_TOP + y);
+
+    // Rótulos verticais (comprimento) - Ajustados para ficarem espaçados
+    for (let y = 0; y <= height; y += labelSpacing) {
+        const label = `${y / SCALE}m`;
+        ctx.fillText(label, OFFSET_LEFT - 20, OFFSET_TOP + y);
     }
 }
 
