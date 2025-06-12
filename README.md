@@ -66,9 +66,9 @@ curl -X DELETE http://localhost:8080/api/items/1
   "height": float,          // Altura em metros
   "length": float,          // Comprimento em metros
   "weight": float,          // Peso em kg
-  "position_x": float,      // Posição X (opcional)
-  "position_y": float,      // Posição Y (opcional)
-  "position_z": float       // Posição Z (opcional)
+  "position_x": float,      // Posição X 
+  "position_y": float,      // Posição Y 
+  "position_z": float       // Posição Z 
 }
 ```
 
