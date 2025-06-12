@@ -7,37 +7,40 @@
     <title>Sistema de Otimização de Balsa</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="app.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>Sistema de Otimização de Balsa</h1>
-            <p class="subtitle">Visualização em tempo real do carregamento</p>
+            <h1><i class="fas fa-ship"></i> Sistema de Otimização de Balsa</h1>
+            <p class="subtitle">Visualização em tempo real do carregamento e otimização de containers</p>
         </header>
         
         <div class="input-container">
-            <h2>Adicionar Novo Container</h2>
+            <h2><i class="fas fa-plus-circle"></i> Adicionar Novo Container</h2>
             <form id="containerForm" class="container-form">
                 <div class="form-row">
                     <div class="form-group">
-                        <label for="width">Largura (m):</label>
+                        <label for="width"><i class="fas fa-arrows-alt-h"></i> Largura (m):</label>
                         <input type="number" id="width" name="width" value="2.4" step="0.1" min="0" required>
                     </div>
                     <div class="form-group">
-                        <label for="height">Altura (m):</label>
+                        <label for="height"><i class="fas fa-arrows-alt-v"></i> Altura (m):</label>
                         <input type="number" id="height" name="height" value="2.6" step="0.1" min="0" required>
                     </div>
                     <div class="form-group">
-                        <label for="length">Comprimento (m):</label>
+                        <label for="length"><i class="fas fa-ruler"></i> Comprimento (m):</label>
                         <input type="number" id="length" name="length" value="6.0" step="0.1" min="0" required>
                     </div>
                     <div class="form-group">
-                        <label for="weight">Peso (t):</label>
+                        <label for="weight"><i class="fas fa-weight-hanging"></i> Peso (t):</label>
                         <input type="number" id="weight" name="weight" value="2.5" step="0.1" min="0" required>
                     </div>
-                    <button type="submit" class="submit-btn">Adicionar Container</button>
+                    <button type="submit" class="submit-btn">
+                        <i class="fas fa-plus"></i> Adicionar Container
+                    </button>
                 </div>
             </form>
         </div>
@@ -47,8 +50,13 @@
                 <canvas id="balsaCanvas"></canvas>
             </div>
             <div class="controls">
-                <button id="loadData">Atualizar Dados</button>
+                <button id="loadData">
+                    <i class="fas fa-sync-alt"></i> Atualizar Dados
+                </button>
                 <div class="stats" id="statsPanel">
+                    <div class="loading-indicator">
+                        <i class="fas fa-spinner fa-spin"></i> Carregando estatísticas...
+                    </div>
                 </div>
             </div>
         </div>

@@ -5,6 +5,8 @@ const ctx = canvas.getContext('2d');
 
 const SCALE = 20;
 
+const OFFSET_LEFT = 40;
+const OFFSET_TOP = 25;
 
 let lastApiData = null; 
 let renderedItems = []; 
@@ -12,6 +14,7 @@ let renderedItems = [];
 const API_BASE_URL = 'http://172.20.0.2:8080';
 
 async function loadBalsaData() {
+    showLoading();
     try {
         const response = await fetch(`${API_BASE_URL}/api/optimize`, {
             method: 'POST',
@@ -50,13 +53,20 @@ function renderBalsa(data) {
 
     const ferry = data.ferry_info;
 
-    canvas.width = ferry.width * SCALE;
-    canvas.height = ferry.length * SCALE;
+    // O canvas agora tem o tamanho exato da balsa + espaço para métricas
+    canvas.width = ferry.width * SCALE + OFFSET_LEFT + 10;
+    canvas.height = ferry.length * SCALE + OFFSET_TOP + 10;
     
-    renderedItems = []; 
-    
+    renderedItems = [];
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    drawGrid(canvas.width, canvas.height);
+
+    // Desenha a grade e as métricas com offset
+    drawGrid(ferry.width * SCALE, ferry.length * SCALE);
+
+    // Desenha a área da balsa
+    ctx.fillStyle = 'rgba(240, 240, 240, 0.5)';
+    ctx.fillRect(OFFSET_LEFT, OFFSET_TOP, ferry.width * SCALE, ferry.length * SCALE);
+
     updateStatsPanel(data);
 
     if (!data.placed_items || data.placed_items.length === 0) {
@@ -71,13 +81,10 @@ function renderBalsa(data) {
     data.placed_items.forEach(item => {
         const widthOnCanvas = item.width * SCALE;
         const lengthOnCanvas = item.length * SCALE;
-        const x = item.position_x * SCALE;
-        const y = item.position_z * SCALE;
+        const x = OFFSET_LEFT + item.position_x * SCALE;
+        const y = OFFSET_TOP + item.position_z * SCALE;
 
-        // Salva as informações do item para detecção de clique
         renderedItems.push({ id: item.id, x, y, width: widthOnCanvas, length: lengthOnCanvas });
-        
-        // Desenha o item
         drawItem(x, y, widthOnCanvas, lengthOnCanvas, item);
     });
 }
@@ -113,16 +120,16 @@ function updateStatsPanel(data) {
     
     const statsPanel = document.getElementById('statsPanel');
     statsPanel.innerHTML = `
-        <h3>Informações da Carga</h3>
-        <p>Peso Total: ${data.total_weight || 0}t</p>
-        <p>Volume Ocupado: ${(data.total_volume_occupied || 0).toFixed(2)}m³</p>
-        <p>Itens Carregados: ${items.length}</p>
-        <h3>Informações da Balsa</h3>
-        <p>Largura: ${ferry.width}m</p>
-        <p>Altura: ${ferry.height}m</p>
-        <p>Comprimento: ${ferry.length}m</p>
-        <p>Peso Máximo: ${ferry.max_weight}t</p>
-        <p>Espaço Utilizável: ${(ferry.usable_space_percentage * 100).toFixed(1)}%</p>
+        <h3><i class="fas fa-box"></i> Informações da Carga</h3>
+        <p><i class="fas fa-weight-hanging"></i> Peso Total: ${data.total_weight || 0}t</p>
+        <p><i class="fas fa-cube"></i> Volume Ocupado: ${(data.total_volume_occupied || 0).toFixed(2)}m³</p>
+        <p><i class="fas fa-boxes"></i> Itens Carregados: ${items.length}</p>
+        <h3><i class="fas fa-ship"></i> Informações da Balsa</h3>
+        <p><i class="fas fa-arrows-alt-h"></i> Largura: ${ferry.width}m</p>
+        <p><i class="fas fa-arrows-alt-v"></i> Altura: ${ferry.height}m</p>
+        <p><i class="fas fa-ruler"></i> Comprimento: ${ferry.length}m</p>
+        <p><i class="fas fa-weight"></i> Peso Máximo: ${ferry.max_weight}t</p>
+        <p><i class="fas fa-percentage"></i> Espaço Utilizável: ${(ferry.usable_space_percentage * 100).toFixed(1)}%</p>
     `;
 }
 
@@ -133,21 +140,52 @@ function updateStatsPanel(data) {
  * @param {number} height - Altura do canvas.
  */
 function drawGrid(width, height) {
-    ctx.strokeStyle = '#f0f0f0';
+    // Grade principal (metros)
+    ctx.strokeStyle = '#e0e0e0';
     ctx.lineWidth = 0.5;
 
-    for (let x = 0; x < width; x += SCALE) {
+    for (let x = 0; x <= width; x += SCALE) {
         ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, height);
+        ctx.moveTo(OFFSET_LEFT + x, OFFSET_TOP);
+        ctx.lineTo(OFFSET_LEFT + x, OFFSET_TOP + height);
         ctx.stroke();
     }
 
-    for (let y = 0; y < height; y += SCALE) {
+    for (let y = 0; y <= height; y += SCALE) {
         ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(width, y);
+        ctx.moveTo(OFFSET_LEFT, OFFSET_TOP + y);
+        ctx.lineTo(OFFSET_LEFT + width, OFFSET_TOP + y);
         ctx.stroke();
+    }
+
+    // Grade secundária (0.5 metros)
+    ctx.strokeStyle = '#f0f0f0';
+    for (let x = 0; x <= width; x += SCALE / 2) {
+        ctx.beginPath();
+        ctx.moveTo(OFFSET_LEFT + x, OFFSET_TOP);
+        ctx.lineTo(OFFSET_LEFT + x, OFFSET_TOP + height);
+        ctx.stroke();
+    }
+    for (let y = 0; y <= height; y += SCALE / 2) {
+        ctx.beginPath();
+        ctx.moveTo(OFFSET_LEFT, OFFSET_TOP + y);
+        ctx.lineTo(OFFSET_LEFT + width, OFFSET_TOP + y);
+        ctx.stroke();
+    }
+
+    // Rótulos de escala
+    ctx.fillStyle = '#666';
+    ctx.font = '10px Roboto';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Rótulos horizontais (largura)
+    for (let x = 0; x <= width; x += SCALE) {
+        ctx.fillText(`${x / SCALE}m`, OFFSET_LEFT + x, OFFSET_TOP - 10);
+    }
+    // Rótulos verticais (comprimento)
+    for (let y = 0; y <= height; y += SCALE) {
+        ctx.fillText(`${y / SCALE}m`, OFFSET_LEFT - 20, OFFSET_TOP + y);
     }
 }
 
@@ -160,26 +198,31 @@ function drawGrid(width, height) {
  * @param {object} item - O objeto do item.
  */
 function drawItem(x, y, width, length, item) {
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-    ctx.shadowBlur = 8;
-    ctx.shadowOffsetX = 2;
+    // Sombra
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetX = 3;
     ctx.shadowOffsetY = 3;
 
+    // Gradiente
     const baseColor = item.color || '#3498db';
     const gradient = ctx.createLinearGradient(x, y, x, y + length);
-    gradient.addColorStop(0, lightenColor(baseColor, 10));
-    gradient.addColorStop(1, darkenColor(baseColor, 20));
+    gradient.addColorStop(0, lightenColor(baseColor, 15));
+    gradient.addColorStop(1, darkenColor(baseColor, 15));
 
+    // Corpo do item
     ctx.fillStyle = gradient;
     ctx.fillRect(x, y, width, length);
 
+    // Borda
     ctx.shadowColor = 'transparent';
     ctx.strokeStyle = darkenColor(baseColor, 30);
     ctx.lineWidth = 2;
     ctx.strokeRect(x, y, width, length);
 
-    const minFontSize = 8;
-    const maxFontSize = 14;
+    // Texto
+    const minFontSize = 10;
+    const maxFontSize = 16;
     const calculatedFontSize = Math.max(minFontSize, Math.min(maxFontSize, Math.floor(Math.min(width, length) / 4)));
 
     ctx.fillStyle = getContrastColor(baseColor);
@@ -187,7 +230,7 @@ function drawItem(x, y, width, length, item) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    // Desenha as informações do item
+    // Informações do item
     const texts = [`#${item.id}`, `${item.weight.toFixed(1)}t`];
     const centerX = x + width / 2;
     const centerY = y + length / 2;
@@ -198,31 +241,35 @@ function drawItem(x, y, width, length, item) {
         ctx.fillText(text, centerX, startY + (index * lineHeight));
     });
 
-    // Desenha o botão de deletar na parte inferior
-    drawTrashIcon(centerX, y + length - 15);
+    // Botão de deletar
+    drawTrashIcon(x + width - 25, y + 25);
 }
 
 /**
  * Desenha um ícone de lixeira no centro do item.
- * @param {number} centerX - Coordenada X do centro do item.
- * @param {number} centerY - Coordenada Y do centro do item.
+ * @param {number} x - Coordenada X do centro do item.
+ * @param {number} y - Coordenada Y do centro do item.
  */
-function drawTrashIcon(centerX, centerY) {
+function drawTrashIcon(x, y) {
     const iconSize = 20;
-    const x = centerX - iconSize / 2;
-    const y = centerY - iconSize / 2;
-
-    // Fundo branco semitransparente para o ícone
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    
+    // Círculo de fundo
     ctx.beginPath();
-    ctx.arc(centerX, centerY, iconSize / 1.5, 0, Math.PI * 2);
+    ctx.arc(x, y, iconSize / 2, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
     ctx.fill();
-
-    ctx.strokeStyle = '#D32F2F'; 
+    
+    // Borda do círculo
+    ctx.strokeStyle = '#D32F2F';
     ctx.lineWidth = 2;
-    ctx.font = `bold ${iconSize}px sans-serif`;
+    ctx.stroke();
+
+    // Ícone de lixeira
     ctx.fillStyle = '#D32F2F';
-    ctx.fillText('🗑️', centerX, centerY + 2); // Emoji de lixeira
+    ctx.font = `bold ${iconSize}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('×', x, y);
 }
 
 /**
@@ -314,9 +361,43 @@ async function handleFormSubmit(event) {
     }
 }
 
-// --- EVENT LISTENERS PARA INTERATIVIDADE ---
+// Adiciona efeito de hover nos itens
+let hoveredItemId = null;
 
-// Movimento do mouse sobre o canvas
+// Adiciona tooltip para os itens
+function showTooltip(event, item) {
+    const tooltip = document.createElement('div');
+    tooltip.className = 'tooltip';
+    tooltip.innerHTML = `
+        <strong>Container #${item.id}</strong><br>
+        Dimensões: ${item.width}m × ${item.length}m<br>
+        Peso: ${item.weight}t
+    `;
+    
+    document.body.appendChild(tooltip);
+    
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    
+    tooltip.style.left = `${event.clientX + 10}px`;
+    tooltip.style.top = `${event.clientY + 10}px`;
+    tooltip.style.opacity = '1';
+    
+    return tooltip;
+}
+
+// Remove tooltip
+function removeTooltip(tooltip) {
+    if (tooltip) {
+        tooltip.style.opacity = '0';
+        setTimeout(() => tooltip.remove(), 300);
+    }
+}
+
+// Atualiza o evento de mousemove para incluir tooltip
+let currentTooltip = null;
+
 canvas.addEventListener('mousemove', (event) => {
     if (!lastApiData) return;
 
@@ -325,45 +406,49 @@ canvas.addEventListener('mousemove', (event) => {
     const mouseY = event.clientY - rect.top;
 
     let currentlyHovered = null;
+    let hoveredItem = null;
+    
     for (const item of renderedItems) {
         if (mouseX >= item.x && mouseX <= item.x + item.width && 
             mouseY >= item.y && mouseY <= item.y + item.length) {
             currentlyHovered = item.id;
+            hoveredItem = lastApiData.placed_items.find(i => i.id === item.id);
             break;
         }
     }
     
-    // Redesenha apenas se o item sob o cursor mudou.
     if (currentlyHovered !== hoveredItemId) {
         hoveredItemId = currentlyHovered;
+        canvas.style.cursor = currentlyHovered ? 'pointer' : 'default';
         renderBalsa(lastApiData);
-    }
-});
-
-// Clique no canvas
-canvas.addEventListener('click', (event) => {
-    if (!lastApiData) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    
-    const mouseX = (event.clientX - rect.left) * scaleX;
-    const mouseY = (event.clientY - rect.top) * scaleY;
-
-    for (const item of renderedItems) {
-        // Área do botão de deletar (últimos 30 pixels do item)
-        const deleteButtonY = item.y + item.length - 30;
         
-        if (mouseX >= item.x && 
-            mouseX <= item.x + item.width && 
-            mouseY >= deleteButtonY && 
-            mouseY <= item.y + item.length) {
-            deleteItem(item.id);
-            break;
+        // Atualiza tooltip
+        removeTooltip(currentTooltip);
+        if (hoveredItem) {
+            currentTooltip = showTooltip(event, hoveredItem);
         }
+    } else if (currentTooltip && hoveredItem) {
+        // Atualiza posição do tooltip
+        currentTooltip.style.left = `${event.clientX + 10}px`;
+        currentTooltip.style.top = `${event.clientY + 10}px`;
     }
 });
+
+// Remove tooltip quando o mouse sai do canvas
+canvas.addEventListener('mouseout', () => {
+    removeTooltip(currentTooltip);
+    currentTooltip = null;
+});
+
+// Adiciona animação de loading
+function showLoading() {
+    const statsPanel = document.getElementById('statsPanel');
+    statsPanel.innerHTML = `
+        <div class="loading-indicator">
+            <i class="fas fa-spinner fa-spin"></i> Carregando estatísticas...
+        </div>
+    `;
+}
 
 document.getElementById('loadData').addEventListener('click', loadBalsaData);
 document.getElementById('containerForm').addEventListener('submit', handleFormSubmit);
